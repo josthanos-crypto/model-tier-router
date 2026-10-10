@@ -1,0 +1,57 @@
+{
+  "_comment": "Routing policy, edited by hand. Each tier names a model line and an effort; the concrete model comes from catalog.json, so a new model in a line is picked up automatically. Effort is clamped to what the model supports.",
+  "order": ["fast", "standard", "deep", "max", "frontier"],
+  "tiers": {
+    "fast": {
+      "line": "haiku",
+      "effort": "medium",
+      "agent": "router-fast",
+      "label": { "es": "Rápido", "en": "Fast" },
+      "use_for": {
+        "es": "Consultas, búsquedas, renombrar, formatear, convertir, resumir, extraer datos de un texto, ortografía.",
+        "en": "Lookups, searches, renames, formatting, conversions, summaries, data extraction, proofreading."
+      }
+    },
+    "standard": {
+      "line": "sonnet",
+      "effort": "high",
+      "agent": "router-standard",
+      "label": { "es": "Estándar", "en": "Standard" },
+      "use_for": {
+        "es": "Trabajo claro y bien descrito: implementar algo definido, tests, correos, documentos, tablas, análisis que sabes explicar.",
+        "en": "Clear, well-described work: implement a defined change, tests, emails, documents, tables, analysis you can describe."
+      }
+    },
+    "deep": {
+      "line": "opus",
+      "effort": "high",
+      "agent": "router-deep",
+      "label": { "es": "Profundo", "en": "Deep" },
+      "use_for": {
+        "es": "Trabajo complejo o aún sin definir: arquitectura, causas desconocidas, decisiones abiertas, cambios en muchos archivos.",
+        "en": "Complex work still taking shape: architecture, unknown root causes, open decisions, multi-file changes."
+      }
+    },
+    "max": {
+      "line": "opus",
+      "effort": "xhigh",
+      "agent": "router-max",
+      "label": { "es": "Máximo", "en": "Max" },
+      "use_for": {
+        "es": "Lo más difícil: fallos intermitentes, concurrencia, seguridad, o cuando el nivel Profundo ya falló.",
+        "en": "The hardest problems: intermittent failures, concurrency, security, or when Deep already failed."
+      }
+    },
+    "frontier": {
+      "line": "fable",
+      "effort": "high",
+      "agent": "router-frontier",
+      "manual_only": true,
+      "label": { "es": "Frontera", "en": "Frontier" },
+      "use_for": {
+        "es": "Investigación larga de varios pasos, sesiones de agente de horas, informes completos. Solo a petición o tras dos fallos en Máximo.",
+        "en": "Long multistep research, hours-long agent sessions, finished reports."
+      }
+    }
+  }
+}

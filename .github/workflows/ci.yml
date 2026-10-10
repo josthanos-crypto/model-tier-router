@@ -1,0 +1,33 @@
+# Tests, coverage and generated-file checks. No secrets, no API calls.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Tests with coverage (80% minimum)
+        run: npm run coverage
+      - name: Generated files are up to date
+        run: npm run check
+      - name: Manifests are valid JSON
+        run: for f in .claude-plugin/*.json hooks/hooks.json models/*.json package.json; do node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1; done

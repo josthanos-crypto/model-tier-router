@@ -1,0 +1,14 @@
+{
+  "name": "model-tier-router",
+  "owner": { "name": "josthanos-crypto", "url": "https://github.com/josthanos-crypto" },
+  "description": "Model Tier Router: the right Claude model and effort for every task, with a self-updating model catalog.",
+  "plugins": [
+    {
+      "name": "model-tier-router",
+      "source": "./",
+      "description": "Routes every prompt and subtask to the cheapest Claude model and effort that can do it well (Spanish and English), and keeps up with new models automatically.",
+      "category": "productivity",
+      "tags": ["routing", "models", "cost", "effort"]
+    }
+  ]
+}

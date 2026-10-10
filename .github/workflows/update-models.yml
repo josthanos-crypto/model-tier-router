@@ -1,0 +1,67 @@
+# Weekly: refresh models/catalog.json from Anthropic, regenerate everything that names a model,
+# run the tests, and open a pull request (or commit directly when the repository variable
+# MODEL_UPDATE_MODE is "commit"). Nothing is published if a sanity check or a test fails.
+#
+# Optional secret ANTHROPIC_API_KEY: uses the Models API for line, lifecycle and effort data.
+# Without it the public docs are used. Opening PRs needs Settings > Actions > General >
+# "Allow GitHub Actions to create and approve pull requests".
+name: update-models
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-models
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Refresh the model catalog
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/update-models.mjs --summary-file "$RUNNER_TEMP/summary.md"
+      - name: Regenerate agents, docs and the claude.ai block
+        run: node scripts/build.mjs
+      - name: Test
+        run: npm test
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ vars.MODEL_UPDATE_MODE }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No model changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -F - <<MSG
+          chore(models): update model catalog
+
+          $(cat "$RUNNER_TEMP/summary.md" 2>/dev/null)
+          MSG
+          if [ "$MODE" = "commit" ]; then
+            git push origin "HEAD:$BASE"
+            exit 0
+          fi
+          branch=bot/update-models
+          git push --force origin "HEAD:refs/heads/$branch"
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" = "0" ]; then
+            gh pr create --base "$BASE" --head "$branch" \
+              --title "chore(models): update model catalog" \
+              --body-file "$RUNNER_TEMP/summary.md"
+          fi

@@ -1,0 +1,11 @@
+{
+  "name": "model-tier-router",
+  "displayName": "Model Tier Router",
+  "version": "1.0.0",
+  "description": "Picks the right Claude model and effort for every task (Haiku, Sonnet, Opus, Fable) with a local, zero-token classifier that understands Spanish and English, delegates to subagents that pin real model IDs, verifies and escalates on failure, logs real subagent cost, and keeps its model catalog current from Anthropic's own data.",
+  "author": { "name": "josthanos-crypto", "url": "https://github.com/josthanos-crypto" },
+  "homepage": "https://github.com/josthanos-crypto/model-tier-router#readme",
+  "repository": "https://github.com/josthanos-crypto/model-tier-router",
+  "license": "MIT",
+  "keywords": ["routing", "models", "effort", "subagents", "cost", "haiku", "sonnet", "opus", "fable", "spanish"]
+}
