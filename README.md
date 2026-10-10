@@ -22,7 +22,7 @@ El catálogo completo, con precios y niveles de esfuerzo de cada modelo, está e
 
 ## Qué hace
 
-- **Clasifica cada mensaje en local.** Un hook `UserPromptSubmit` puntúa lo que *escribes* (no lo que pegas: logs, código, facturas o documentos pegados cuentan como material, no como dificultad) y añade una nota corta para la sesión principal. Entiende español con o sin tildes, «¿» y «¡» incluidos.
+- **Clasifica cada mensaje en local.** Un hook `UserPromptSubmit` puntúa lo que *escribes* y no lo que pegas: logs, código, JSON, facturas o documentos pegados, también en una sola línea larga, cuentan como material y no como dificultad. Después añade una nota corta para la sesión principal. Entiende español con o sin tildes, «¿» y «¡» incluidos.
 - **Delega en subagentes con el modelo fijado.** Los hooks no pueden cambiar el modelo de la sesión principal, así que cada nivel es un subagente con el ID real del modelo y su esfuerzo (`claude-haiku-5-5`, `effort: medium`…). Se usan IDs completos y no alias porque un alias como `haiku` puede resolverse a un modelo antiguo.
 - **Verifica y escala.** La sesión principal comprueba cada resultado. Si un subagente responde `ESCALATE` o falla la comprobación, reintenta una vez con un encargo más preciso y luego sube un nivel. Fable solo entra a petición (`!fable`) o tras dos fallos en Máximo.
 - **Mide lo que cuesta de verdad.** Cada subagente queda registrado con el modelo que corrió de verdad, sus tokens y su coste estimado a precio de lista, incluida la caché de 1 hora y el tramo de contexto largo de Haiku 5.5. `/model-tier-router:router-stats` lo resume.
@@ -48,7 +48,7 @@ node scripts/install.mjs --project /ruta/a/tu/proyecto          # muestra qué h
 node scripts/install.mjs --project /ruta/a/tu/proyecto --yes    # lo instala en .claude/
 ```
 
-Copia los scripts, los agentes y las skills a `.claude/` del proyecto y añade los hooks a `.claude/settings.json` (con copia de seguridad). Haz commit de esa carpeta. Sin `--project` instala para tu usuario en `~/.claude`. `--uninstall --yes` quita exactamente lo que puso.
+Copia los scripts, los agentes y las skills a `.claude/` del proyecto y añade los hooks a `.claude/settings.json`. Haz commit de esa carpeta. Sin `--project` instala para tu usuario en `~/.claude`. Apunta cada archivo que escribe en un manifiesto: nunca sobrescribe un archivo que no instaló (se detiene y te lo enumera), no toca un `settings.json` que no sea JSON válido, guarda una copia fechada de `settings.json` antes de cada cambio, y `--uninstall --yes` quita solo lo que puso.
 
 ### claude.ai (web, escritorio, móvil y Cowork)
 
@@ -94,13 +94,13 @@ Van en `~/.claude/model-router/config.json`, donde también se guardan los regis
 [`.github/workflows/update-models.yml`](.github/workflows/update-models.yml) se ejecuta los lunes, y también a mano desde la pestaña *Actions*:
 
 1. Lee la página de modelos, la de precios y la de esfuerzo de la documentación de Anthropic. Si existe el secreto `ANTHROPIC_API_KEY`, usa además la Models API, que da la familia, el ciclo de vida y los esfuerzos admitidos de cada modelo.
-2. Para cada familia que usan los niveles (haiku, sonnet, opus, fable) elige el modelo activo más reciente. Ignora los obsoletos y los de acceso limitado.
-3. Si algo no cuadra (un modelo actual sin precio, o sin niveles de esfuerzo), se detiene sin escribir nada. Un cambio de diseño en la documentación no puede publicar un catálogo roto.
-4. Regenera agentes, documentación, bloque de claude.ai y esta tabla, pasa los tests y abre un PR con el resumen de cambios.
+2. Para cada familia que usan los niveles (haiku, sonnet, opus, fable) toma el modelo de la tabla «Compare models» de Anthropic, que es la gama actual. Con la Models API elige el activo más reciente e ignora los obsoletos y los de acceso limitado.
+3. Si algo no cuadra, se detiene sin escribir nada y GitHub te avisa del fallo por correo. Comprueba que estén las tablas y columnas esperadas (los precios se leen por el nombre de la columna), que cada familia tenga un modelo actual con precios coherentes (lectura de caché < entrada < salida) y que ese modelo admita los esfuerzos que usan los niveles. Así un cambio de diseño en la documentación no publica un catálogo roto.
+4. Regenera agentes, documentación, bloque de claude.ai y esta tabla, pasa los tests y abre un PR con el resumen de cambios. Los PR que abre el token por defecto de GitHub no lanzan el CI (los tests ya se pasaron en el propio workflow). Si quieres que lo lancen, crea el secreto `UPDATE_TOKEN` con un token de acceso fino con permiso de escritura en *contents* y *pull requests*.
 
 Si prefieres que se aplique sin revisar, crea la variable de repositorio `MODEL_UPDATE_MODE` con el valor `commit`. Para que pueda abrir PRs, activa *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*.
 
-Tu instalación recibe los cambios con `/plugin marketplace update model-tier-router`, o sola si tienes activada la actualización automática de marketplaces. Si el catálogo instalado tiene más de 120 días, o un subagente ejecuta un modelo que no conoce, el router te sugiere actualizar una vez al empezar la sesión.
+Tu instalación recibe los cambios con `/plugin marketplace update model-tier-router`, o sola si tienes activada la actualización automática de marketplaces. Si la sesión o un subagente usa un modelo que el catálogo instalado no conoce, el router te sugiere actualizar una vez al empezar la sesión.
 
 ## Qué cuesta y qué no hace
 

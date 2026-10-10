@@ -84,17 +84,30 @@ test('decide returns null for non-prompts', () => {
   assert.equal(decide('!off x', ctx).output, null);
 });
 
-test('session-start: one routing line, plus nudges when the catalog looks stale', () => {
+test('session-start: one routing line, plus a nudge when an unknown model shows up', () => {
   const config = { main_model: 'opus' };
-  const fresh = sessionContext({ catalog, tiers, config, now: new Date(catalog.updated_at) });
+  const fresh = sessionContext({ catalog, tiers, config, telemetry: [{ models: [catalog.current.haiku] }], sessionModel: catalog.current.opus });
   assert.match(fresh, /fast=Claude Haiku/);
   assert.match(fresh, /frontier=Claude Fable [\d.]+ · high \(on request\)/);
   assert.ok(!fresh.includes('Note:'));
-  const old = sessionContext({ catalog, tiers, config, now: new Date(Date.parse(catalog.updated_at) + 200 * 86_400_000) });
-  assert.match(old, /200 days old/);
-  const unknown = sessionContext({ catalog, tiers, config, now: new Date(catalog.updated_at), telemetry: [{ models: ['claude-opus-9'] }] });
+  const unknown = sessionContext({ catalog, tiers, config, telemetry: [{ models: ['claude-opus-9'] }] });
   assert.match(unknown, /claude-opus-9/);
   assert.match(unknown, /plugin marketplace update model-tier-router/);
+  assert.match(sessionContext({ catalog, tiers, config, sessionModel: 'claude-sonnet-7' }), /claude-sonnet-7/);
+  assert.ok(!sessionContext({ catalog, tiers, config, sessionModel: 'opus' }).includes('Note:'), 'aliases are not reported');
+});
+
+test('session-start tolerates junk telemetry rows', () => {
+  const text = sessionContext({ catalog, tiers, config: { main_model: 'opus' }, telemetry: [null, 7, { models: 'x' }, { models: [null, 3] }] });
+  assert.ok(!text.includes('Note:'));
+});
+
+test('hooks still run when started through a symlinked path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-link-'));
+  const link = path.join(dir, 'scripts');
+  fs.symlinkSync(path.join(root, 'scripts'), link);
+  const res = spawnSync(process.execPath, [path.join(link, 'session-start.mjs')], { input: '{}', encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
+  assert.match(res.stdout, /SessionStart/);
 });
 
 test('session-start hook emits SessionStart JSON', () => {

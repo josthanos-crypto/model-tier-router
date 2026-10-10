@@ -102,6 +102,21 @@ test('a long pasted document with a short instruction is judged by the instructi
   assert.equal(r.tier, 'standard');
 });
 
+test('a long single-line paste is payload, not complexity', () => {
+  const json = JSON.stringify({ items: Array.from({ length: 120 }, (_, i) => ({ id: i, name: `item ${i}`, price: i * 1.5 })) });
+  const r1 = classify(`can you check this config? ${json}`);
+  assert.ok(r1.payload > 4000);
+  assert.equal(r1.tier, 'standard');
+  const prose = 'El cliente se compromete a mantener el contrato durante doce meses desde la fecha de activación. '.repeat(40);
+  const r2 = classify(`revisa este contrato y dime si tiene permanencia: ${prose}`);
+  assert.ok(r2.payload > 3000);
+  assert.equal(r2.tier, 'standard');
+});
+
+test('Spanish stems do not catch English words', () => {
+  assert.notEqual(classify('critical production bug: the button label is wrong').tier, 'deep');
+});
+
 test('English negation removes the negated work from the score', () => {
   assert.equal(classify("don't refactor anything, just add a log line").tier, 'standard');
 });

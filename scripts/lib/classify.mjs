@@ -1,6 +1,6 @@
 // Local, zero-token prompt classifier (English and Spanish). Scores only what the user WROTE:
 // pasted logs, code, invoices and documents count as payload, which can raise a prompt to
-// "standard" but never push a simple ask up to Opus.
+// "standard" but is not meant to push a simple ask up to Opus.
 //
 // Heuristic design adapted from shaaz1000/claude-router (MIT); Spanish patterns are new here.
 
@@ -41,7 +41,7 @@ const DEEP = {
   'escalabilidad|escalar': 2, 'pros y contras|ventajas y (desventajas|inconvenientes)': 2, 'depur\\w+': 2,
   'investiga(r|ndo|cion)?': 2, 'reescrib\\w+': 2, 'de principio a fin|de extremo a extremo': 2, 'planific\\w+|plan (para|de)': 2,
   '(varios|multiples|muchos) (archivos|ficheros|servicios|pasos|modulos|suministros)': 2, 'desacopl\\w+': 2,
-  'critica\\w*': 2, 'como deberiamos': 2, '(mejor|correcta) (forma|manera|opcion) de': 2, 'lluvia de ideas': 2,
+  'critica(r)?': 2, 'como deberiamos': 2, '(mejor|correcta) (forma|manera|opcion) de': 2, 'lluvia de ideas': 2,
   'explora\\w* (opciones|ideas|alternativas)': 2, 'deberia(mos)? (usar|elegir|ir con|optar)': 2,
   'reestructur\\w+': 2, 'modelo de datos': 2, '(estudio|informe|analisis) (completo|detallado|a fondo|en profundidad)': 2,
   '(compara|comparar|comparativa)\\w* (en detalle|a fondo|completa)': 2,
@@ -116,6 +116,7 @@ const OVERRIDES = [
 ];
 
 const MAX_ANALYZE = 8000; // instructions sit at the start and end; bound the work for huge pastes
+const LONG_LINE = 600; // a single line longer than this is pasted material after its lead-in
 
 export function normalize(text) {
   return text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
@@ -138,6 +139,19 @@ function separatePayload(prompt) {
     payload += m.length;
     return '\n';
   });
+
+  // one very long line: "check this config? {...}" or "revisa este contrato: <texto>"
+  text = text
+    .split('\n')
+    .map((line) => {
+      if (line.length <= LONG_LINE) return line;
+      const cut = line.slice(0, 200).search(/[:?]\s|[{[]/);
+      if (cut < 0) return line;
+      const keep = /[{[]/.test(line[cut]) ? cut : cut + 1;
+      payload += line.length - keep;
+      return line.slice(0, keep);
+    })
+    .join('\n');
 
   // runs of 3+ code/log/data lines are payload
   const keep = [];

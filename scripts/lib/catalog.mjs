@@ -72,14 +72,13 @@ export function resolveAll(catalog, tiers) {
   return Object.fromEntries(tiers.order.map((t) => [t, resolveTier(t, catalog, tiers)]));
 }
 
-// Longest catalog id that prefixes the model string, so suffixed ids like "claude-opus-5-5[1m]" still price.
+// Exact id, its dated snapshot ("-20251001") or a context suffix ("[1m]"). Anything else is unknown,
+// so a new "claude-opus-5-6" is reported as unknown instead of being priced as Opus 5.
 export function priceFor(catalog, modelId) {
-  if (!modelId || !catalog?.models) return null;
-  let best = null;
-  for (const m of catalog.models) {
-    if (m.price && modelId.startsWith(m.id) && (!best || m.id.length > best.id.length)) best = m;
-  }
-  return best ? best.price : null;
+  if (typeof modelId !== 'string' || !catalog?.models) return null;
+  const base = modelId.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+  const m = catalog.models.find((x) => x.price && (x.id === modelId || x.id === base));
+  return m ? m.price : null;
 }
 
 // USD for one API request. Long-context tiers apply per request, on the whole prompt including cache.

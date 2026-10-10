@@ -67,7 +67,6 @@ export function telemetryRow(input, catalog, readFile = (f) => fs.readFileSync(f
       requested_model: ti.model || null,
       resolved_model: tr.resolvedModel || null,
       duration_ms: tr.totalDurationMs ?? null,
-      description: String(ti.description || '').slice(0, 120),
     };
   }
   if (event === 'SubagentStop') {

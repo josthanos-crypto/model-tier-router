@@ -77,6 +77,8 @@ test('priceFor matches the longest id prefix', () => {
   assert.equal(priceFor(fx, 'claude-opus-5').output, 25, 'Opus 5 is not priced as Opus 5.5');
   assert.equal(priceFor(fx, 'claude-haiku-4-5-20251001').output, 5);
   assert.equal(priceFor(fx, 'claude-sonnet-x'), null, 'a model without a price is unpriced');
+  assert.equal(priceFor(fx, 'claude-opus-5-6'), null, 'a new model is unknown, not priced as an older one');
+  assert.equal(priceFor(fx, 'claude-opus-5-5-1'), null);
   assert.equal(priceFor(fx, 'gpt-9'), null);
   assert.equal(priceFor(fx, null), null);
 });

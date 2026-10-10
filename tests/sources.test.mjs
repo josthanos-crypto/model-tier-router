@@ -34,8 +34,18 @@ test('pricing table: Haiku 5.5 long-context tier is merged into one entry', () =
   assert.deepEqual(h.long_context, { threshold: 100000, input: 0.5, cache_write_5m: 0.625, cache_write_1h: 1, cache_read: 0.05, output: 2.5 });
 });
 
-test('pricing parser ignores tables outside "Model pricing"', () => {
-  assert.deepEqual(parsePricing('## Batch processing\n| Claude Opus 5.5 | $2 / MTok | $1 | $1 | $1 | $10 / MTok |\n'), {});
+test('pricing parser fails loudly without the "Model pricing" table', () => {
+  assert.throws(() => parsePricing('## Batch processing\n| Claude Opus 5.5 | $2 / MTok | $1 | $1 | $1 | $10 / MTok |\n'), /no "input" column/);
+});
+
+test('pricing columns are read by header, so a reordered table keeps prices right', () => {
+  const md = [
+    '## Model pricing',
+    '| Model | Output tokens | 1h cache writes | 5m cache writes | Cache hits and refreshes | Base input tokens |',
+    '| :-- | :-- | :-- | :-- | :-- | :-- |',
+    '| Claude Opus 5.5 | $20 / MTok | $8 / MTok | $5 / MTok | $0.20 / MTok | $4 / MTok |',
+  ].join('\n');
+  assert.deepEqual(parsePricing(md)['Claude Opus 5.5'], { input: 4, cache_write_5m: 5, cache_write_1h: 8, cache_read: 0.2, output: 20 });
 });
 
 test('overview: current lineup with ids, lines and default effort', () => {
@@ -53,8 +63,17 @@ test('overview: current lineup with ids, lines and default effort', () => {
   assert.ok(legacy.includes('Claude Opus 5'));
 });
 
-test('overview without a comparison table yields nothing', () => {
-  assert.deepEqual(parseOverview('# nothing here'), { current: [], legacy: [] });
+test('overview fails loudly when the table or the id row is missing', () => {
+  assert.throws(() => parseOverview('# nothing here'), /comparison table not found/);
+  const renamed = fixture('overview.md').replace('| Claude API ID ', '| API model name ');
+  assert.throws(() => parseOverview(renamed), /"Claude API ID" row not found/);
+});
+
+test('a reworded effort table reports nothing instead of dropping xhigh', () => {
+  const reworded = fixture('effort.md').replace(/Extended capability for long-horizon work\. Available on/, 'Extended capability. Supported by');
+  const e = parseEffort(reworded);
+  assert.deepEqual(e, { supported: [], xhigh: [], max: [] });
+  assert.equal(effortsFromDocs(e, 'claude-opus-5-5', 'Claude Opus 5.5'), null);
 });
 
 test('effort page: supported ids and xhigh/max availability', () => {
@@ -139,22 +158,42 @@ test('Models API: deprecated and limited models never become current', () => {
   assert.equal(catalog.source, 'api');
 });
 
+const current5 = () => [
+  apiModel('claude-haiku-5-5', 'haiku', '2026-10-07T00:00:00Z', undefined, { name: 'Claude Haiku 5.5' }),
+  apiModel('claude-sonnet-5-5', 'sonnet', '2026-09-28T00:00:00Z', undefined, { name: 'Claude Sonnet 5.5' }),
+  apiModel('claude-opus-5-5', 'opus', '2026-09-22T00:00:00Z', undefined, { name: 'Claude Opus 5.5' }),
+  apiModel('claude-fable-5-1', 'fable', '2026-09-01T00:00:00Z', undefined, { name: 'Claude Fable 5.1' }),
+];
+
 test('sanity: a current model without a price aborts the update', () => {
-  const api = parseApiModels({ data: [apiModel('claude-haiku-6', 'haiku', '2027-01-01T00:00:00Z', undefined, { name: 'Claude Haiku 6' })] });
-  const previous = buildCatalog({ previous: null, api: null, ...docs(), lines: LINES, today: '2026-10-10' }).catalog;
-  assert.throws(() => buildCatalog({ previous, api, ...docs(), lines: LINES, today: '2027-01-02' }), /claude-haiku-6 has no price/);
+  const api = parseApiModels({ data: [...current5(), apiModel('claude-haiku-6', 'haiku', '2027-01-01T00:00:00Z', undefined, { name: 'Claude Haiku 6' })] });
+  assert.throws(() => buildCatalog({ previous: null, api, ...docs(), lines: LINES, today: '2027-01-02' }), /claude-haiku-6 has no price/);
 });
 
-test('sanity: a broken docs page cannot empty the catalog', () => {
-  assert.throws(
-    () => buildCatalog({ previous: null, api: null, overview: { current: [], legacy: [] }, pricing: {}, effort: null, lines: LINES, today: '2026-10-10' }),
-    /sanity/,
-  );
-  // with a previous catalog, an unparseable lineup keeps the previous current models
+test('sanity: implausible prices abort the update', () => {
+  const pricing = { ...docs().pricing, 'Claude Opus 5.5': { input: 20, cache_write_5m: 5, cache_write_1h: 8, cache_read: 0.2, output: 4 } };
+  assert.throws(() => buildCatalog({ previous: null, api: null, ...docs(), pricing, lines: LINES, today: '2026-10-10' }), /prices look wrong/);
+});
+
+test('sanity: a model that lacks an effort the tiers use aborts the update', () => {
+  const api = parseApiModels({ data: [...current5(), apiModel('claude-opus-6', 'opus', '2027-01-15T00:00:00Z', ['low', 'medium', 'high'], { name: 'Claude Opus 6' })] });
+  const pricing = { ...docs().pricing, 'Claude Opus 6': { input: 4, cache_write_5m: 5, cache_write_1h: 8, cache_read: 0.2, output: 20 } };
+  const required = { opus: ['high', 'xhigh'] };
+  assert.throws(() => buildCatalog({ previous: null, api, ...docs(), pricing, lines: LINES, required, today: '2027-01-20' }), /does not support effort xhigh/);
+});
+
+test('sanity: a line with no source model aborts instead of silently keeping the old one', () => {
   const previous = buildCatalog({ previous: null, api: null, ...docs(), lines: LINES, today: '2026-10-10' }).catalog;
-  const kept = buildCatalog({ previous, api: null, overview: { current: [], legacy: [] }, pricing: {}, effort: null, lines: LINES, today: '2026-10-11' });
-  assert.deepEqual(kept.catalog.current, previous.current);
-  assert.equal(kept.notes.length, 4);
+  const overview = { ...docs().overview, current: docs().overview.current.filter((m) => m.line !== 'fable') };
+  assert.throws(() => buildCatalog({ previous, api: null, ...docs(), overview, lines: LINES, today: '2026-10-11' }), /no current model found for line "fable"/);
+});
+
+test('Models API without a line field falls back to the display name and keeps known lines', () => {
+  const data = current5().map(({ line, ...m }) => m);
+  const previous = buildCatalog({ previous: null, api: null, ...docs(), lines: LINES, today: '2026-10-10' }).catalog;
+  const { catalog } = buildCatalog({ previous, api: parseApiModels({ data }), ...docs(), lines: LINES, today: '2026-10-11' });
+  assert.deepEqual(catalog.current, previous.current);
+  assert.equal(catalog.models.find((m) => m.id === 'claude-opus-4-8').line, 'opus', 'unlisted models keep their line');
 });
 
 test('parseApiModels tolerates junk and missing capabilities', () => {

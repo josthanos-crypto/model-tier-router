@@ -32,6 +32,8 @@ async function main() {
   const tiers = loadTiers();
   const previous = loadCatalog();
   const lines = [...new Set(Object.values(tiers.tiers).map((t) => t.line))];
+  const required = {};
+  for (const t of Object.values(tiers.tiers)) required[t.line] = [...new Set([...(required[t.line] || []), t.effort])];
 
   const [overviewMd, pricingMd, effortMd] = await Promise.all(
     [DOCS.overview, DOCS.pricing, DOCS.effort].map((u) => get(u).then((r) => r.text())),
@@ -45,17 +47,17 @@ async function main() {
     }
   }
 
-  const { catalog, changed, notes, summary } = buildCatalog({
+  const { catalog, changed, summary } = buildCatalog({
     previous,
     api,
     overview: parseOverview(overviewMd),
     pricing: parsePricing(pricingMd),
     effort: parseEffort(effortMd),
     lines,
+    required,
     today: new Date().toISOString().slice(0, 10),
   });
 
-  for (const n of notes) console.warn(`note: ${n}`);
   if (!changed) {
     console.log(`Catalog is up to date (source: ${catalog.source}).`);
     return;

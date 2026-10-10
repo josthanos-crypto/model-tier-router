@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { outOfDate, renderAll, renderReadmeTiers } from '../scripts/build.mjs';
 import { loadCatalog, loadTiers, resolveAll } from '../scripts/lib/catalog.mjs';
 import { report } from '../scripts/stats.mjs';
-import { plan, run, withOurHooks, withoutOurHooks } from '../scripts/install.mjs';
+import { parseArgs, plan, run, withOurHooks, withoutOurHooks } from '../scripts/install.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -121,4 +121,47 @@ test('install: user install targets ~/.claude with an absolute path', () => {
   const p = plan({ project: null });
   assert.ok(p.scriptsRef.endsWith('.claude/model-router/scripts'));
   assert.ok(path.isAbsolute(p.base));
+});
+
+test('install: refuses to overwrite files it did not install, and lists them', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-proj-'));
+  const mine = path.join(project, '.claude', 'skills', 'router');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'SKILL.md'), 'my own skill');
+  const lines = [];
+  assert.throws(() => run({ project, yes: true, log: (l) => lines.push(l) }), /would be overwritten/);
+  assert.ok(lines.some((l) => l.includes('skills/router/SKILL.md')));
+  assert.equal(fs.readFileSync(path.join(mine, 'SKILL.md'), 'utf8'), 'my own skill');
+});
+
+test('install: never rewrites an unreadable settings.json, and keeps every backup', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-proj-'));
+  const settingsFile = path.join(project, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, '{ "permissions": { "allow": ["Bash"] }, }');
+  assert.throws(() => run({ project, yes: true, log: () => {} }), /not valid JSON/);
+  assert.equal(fs.readFileSync(settingsFile, 'utf8'), '{ "permissions": { "allow": ["Bash"] }, }');
+  fs.writeFileSync(settingsFile, JSON.stringify({ permissions: { allow: ['Bash'] } }));
+  run({ project, yes: true, log: () => {} });
+  run({ project, yes: true, log: () => {} }); // reinstall replaces only its own files
+  const backups = fs.readdirSync(path.dirname(settingsFile)).filter((f) => f.startsWith('settings.json.bak-model-router-'));
+  assert.equal(backups.length, 2);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')).permissions, { allow: ['Bash'] });
+});
+
+test('install: uninstall leaves files it did not install', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'cmr-proj-'));
+  run({ project, yes: true, log: () => {} });
+  const notes = path.join(project, '.claude', 'skills', 'router', 'my-notes.md');
+  fs.writeFileSync(notes, 'keep me');
+  run({ project, uninstall: true, yes: true, log: () => {} });
+  assert.equal(fs.readFileSync(notes, 'utf8'), 'keep me');
+  assert.ok(!fs.existsSync(path.join(project, '.claude', 'skills', 'router', 'SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(project, '.claude', 'skills', 'router-stats')), 'empty own dirs are pruned');
+});
+
+test('install: argument parsing', () => {
+  assert.deepEqual(parseArgs(['--project', '--yes']), { project: '.', uninstall: false, yes: true });
+  assert.deepEqual(parseArgs(['--project', 'repo', '--uninstall']), { project: 'repo', uninstall: true, yes: false });
+  assert.equal(parseArgs([]).project, null);
 });

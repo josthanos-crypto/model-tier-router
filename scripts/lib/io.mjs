@@ -3,8 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // True when the module is the script node was started with (not imported by a test).
+// Compares real paths, so a symlinked ~/.claude (dotfiles setups) still runs the hook.
 export function isMain(metaUrl) {
-  return Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(metaUrl);
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(metaUrl));
+  } catch {
+    return path.resolve(process.argv[1]) === fileURLToPath(metaUrl);
+  }
 }
 
 export async function readStdinJson() {

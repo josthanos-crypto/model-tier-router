@@ -26,7 +26,7 @@ export function idFromName(name) {
 }
 
 function section(md, heading) {
-  const start = md.indexOf(`\n## ${heading}`);
+  const start = `\n${md}`.indexOf(`\n## ${heading}`);
   if (start < 0) return '';
   const next = md.indexOf('\n## ', start + 4);
   return md.slice(start, next < 0 ? undefined : next);
@@ -37,22 +37,32 @@ const dollars = (cell) => {
   return m ? Number(m[1]) : null;
 };
 
+const PRICE_COLUMNS = {
+  input: /base input/i,
+  cache_write_5m: /5m cache/i,
+  cache_write_1h: /1h cache/i,
+  cache_read: /cache (hits|reads?)/i,
+  output: /^output/i,
+};
+
 // The "Model pricing" table: name -> price per MTok, with Haiku-style long-context rows merged.
+// Columns are found by their header, so a reordered table cannot swap prices; a missing
+// section or column throws, so a docs redesign fails the update loudly instead of silently.
 export function parsePricing(md) {
+  const rows = section(md, 'Model pricing').split('\n').filter((l) => l.startsWith('|'));
+  const header = rows.length ? cells(rows[0]) : [];
+  const col = {};
+  for (const [key, re] of Object.entries(PRICE_COLUMNS)) {
+    col[key] = header.findIndex((h) => re.test(h));
+    if (col[key] < 1) throw new Error(`pricing table: no "${key}" column (header: ${header.join(' | ') || 'none'})`);
+  }
   const out = {};
-  for (const row of section(md, 'Model pricing').split('\n')) {
+  for (const row of rows) {
     if (!row.startsWith('| Claude ')) continue;
     const c = cells(row);
-    if (c.length < 6) continue;
     const label = stripLinks(c[0]);
     const name = label.replace(/\s*\(.*$/, '').trim();
-    const price = {
-      input: dollars(c[1]),
-      cache_write_5m: dollars(c[2]),
-      cache_write_1h: dollars(c[3]),
-      cache_read: dollars(c[4]),
-      output: dollars(c[5]),
-    };
+    const price = Object.fromEntries(Object.entries(col).map(([key, i]) => [key, dollars(c[i] || '')]));
     if (Object.values(price).some((v) => v === null)) continue;
     const over = /for prompts over ([\d,]+) tokens/i.exec(label);
     if (over) {
@@ -71,7 +81,7 @@ export function parsePricing(md) {
 export function parseOverview(md) {
   const rows = md.split('\n').filter((l) => l.startsWith('|'));
   const headerIdx = rows.findIndex((r) => cells(r)[0] === 'Feature');
-  if (headerIdx < 0) return { current: [], legacy: [] };
+  if (headerIdx < 0) throw new Error('models overview: comparison table not found');
   const names = cells(rows[headerIdx]).slice(1).map(stripLinks);
   const rowOf = (label) => {
     for (let i = headerIdx + 1; i < rows.length; i++) {
@@ -81,6 +91,7 @@ export function parseOverview(md) {
     return [];
   };
   const ids = rowOf('Claude API ID').map((c) => (/`([^`]+)`/.exec(c) || [])[1]);
+  if (!ids.some(Boolean)) throw new Error('models overview: "Claude API ID" row not found');
   const efforts = rowOf('Default effort').map((c) => (/`([^`]+)`/.exec(c) || [])[1] || null);
   const current = names
     .map((name, i) => ({ name, id: ids[i], line: lineFromName(name), default_effort: efforts[i] || null }))
@@ -100,12 +111,22 @@ export function parseEffort(md) {
     const m = row && /Available on ([^|]+?)\.\s*\|/.exec(row);
     return m ? m[1].replace(/\band\s+/g, '').split(',').map((s) => s.trim()).filter(Boolean) : [];
   };
-  return { supported, xhigh: listFor('xhigh'), max: listFor('max') };
+  const xhigh = listFor('xhigh');
+  const max = listFor('max');
+  // If either list cannot be read, the page changed shape: report nothing rather than
+  // silently dropping levels (a new model then fails the sanity check instead).
+  if (!xhigh.length || !max.length) return { supported: [], xhigh: [], max: [] };
+  return { supported, xhigh, max };
+}
+
+// "claude-opus-4-5-20251101" is the dated snapshot of "claude-opus-4-5"; "claude-opus-4-5-1" is not.
+export function sameModel(listed, id) {
+  return listed === id || (listed.startsWith(`${id}-`) && /^\d{8}$/.test(listed.slice(id.length + 1)));
 }
 
 export function effortsFromDocs(effortDoc, id, name) {
   if (!effortDoc || !effortDoc.supported.length) return null;
-  if (!effortDoc.supported.some((s) => s === id || s.startsWith(`${id}-`))) return [];
+  if (!effortDoc.supported.some((s) => sameModel(s, id))) return [];
   const levels = ['low', 'medium', 'high'];
   if (effortDoc.xhigh.includes(name)) levels.push('xhigh');
   if (effortDoc.max.includes(name)) levels.push('max');
@@ -121,7 +142,7 @@ export function parseApiModels(json) {
       return {
         id: m.id,
         name: m.display_name || m.id,
-        line: m.line ?? null,
+        line: m.line ?? lineFromName(m.display_name),
         lifecycle: m.lifecycle || 'active',
         created_at: m.created_at || null,
         efforts,
@@ -146,10 +167,12 @@ function newer(a, b) {
 const LINE_ORDER = (l) => (LINES.includes(l) ? LINES.indexOf(l) : LINES.length);
 
 // Merge the sources into a catalog. `lines` are the model lines the tiers need.
-export function buildCatalog({ previous, api, overview, pricing, effort, lines, today }) {
+// `required` maps each line to the effort levels its tiers use; a current model must support them.
+export function buildCatalog({ previous, api, overview, pricing, effort, lines, required = {}, today }) {
   const prev = new Map((previous?.models || []).map((m) => [m.id, m]));
   const byId = new Map();
-  const put = (entry) => byId.set(entry.id, { ...(byId.get(entry.id) || {}), ...entry });
+  const defined = (entry) => Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined && v !== null));
+  const put = (entry) => byId.set(entry.id, { ...(byId.get(entry.id) || {}), ...defined(entry) });
 
   for (const m of prev.values()) put({ ...m });
   if (api) {
@@ -187,7 +210,6 @@ export function buildCatalog({ previous, api, overview, pricing, effort, lines, 
   }
 
   const current = {};
-  const notes = [];
   for (const line of lines) {
     let pick = null;
     if (api) {
@@ -197,15 +219,21 @@ export function buildCatalog({ previous, api, overview, pricing, effort, lines, 
     } else {
       pick = (overview?.current || []).find((m) => m.line === line) || null;
     }
-    current[line] = pick ? pick.id : previous?.current?.[line] || null;
-    if (!pick) notes.push(`no source model for line "${line}", kept previous`);
+    if (!pick) throw new Error(`sanity: no current model found for line "${line}"`);
+    current[line] = pick.id;
   }
 
   for (const line of lines) {
     const m = byId.get(current[line]);
     if (!m) throw new Error(`sanity: line "${line}" has no current model`);
-    if (!m.price) throw new Error(`sanity: ${m.id} has no price`);
+    const p = m.price;
+    if (!p) throw new Error(`sanity: ${m.id} has no price`);
+    if (!(p.cache_read > 0 && p.cache_read < p.input && p.input < p.output && p.cache_write_5m >= p.input && p.cache_write_1h >= p.cache_write_5m))
+      throw new Error(`sanity: ${m.id} prices look wrong: ${JSON.stringify(p)}`);
     if (!Array.isArray(m.efforts) || m.efforts.length === 0) throw new Error(`sanity: ${m.id} has no effort levels`);
+    const missing = (required[line] || []).filter((e) => !m.efforts.includes(e));
+    if (missing.length)
+      throw new Error(`sanity: ${m.id} does not support effort ${missing.join(', ')} used by models/tiers.json; adjust the tiers`);
   }
 
   const models = [...byId.values()]
@@ -226,7 +254,7 @@ export function buildCatalog({ previous, api, overview, pricing, effort, lines, 
     source: api ? 'api' : 'docs',
     ...body,
   };
-  return { catalog, changed, notes, summary: changed ? diffSummary(previous, catalog) : [] };
+  return { catalog, changed, summary: changed ? diffSummary(previous, catalog) : [] };
 }
 
 export function diffSummary(previous, next) {
